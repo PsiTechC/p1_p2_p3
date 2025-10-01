@@ -1,395 +1,234 @@
 
 
+// // 📄 planRagPipeline.js
 
-// const axios = require('axios');
-// const pdfParse = require('pdf-parse');
-// const crypto = require('crypto');
-// const { createEmbedding, queryEmbeddingStore } = require('./vectorStore');
+// require('dotenv').config();
 // const { OpenAI } = require('openai');
+// const getDb = require('../utils/mongoClient');
 
-// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// const openai = new OpenAI({
+//   apiKey: process.env.AZURE_OPENAI_KEY,
+//   baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_CHAT_DEPLOYMENT}`,
+//   defaultQuery: { 'api-version': process.env.AZURE_OPENAI_CHAT_API_VERSION },
+//   defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_KEY }
+// });
 
-// // 1. Download and parse PDF text
-// async function loadPdfFromUrl(url) {
-//   const response = await axios.get(url, { responseType: 'arraybuffer' });
-//   const pdfBuffer = response.data;
-//   const data = await pdfParse(pdfBuffer);
-//   return { text: data.text, numPages: data.numpages };
+// function cosineSimilarity(vecA, vecB) {
+//   const dotProduct = vecA.reduce((sum, val, i) => sum + val * vecB[i], 0);
+//   const normA = Math.sqrt(vecA.reduce((sum, val) => sum + val * val, 0));
+//   const normB = Math.sqrt(vecB.reduce((sum, val) => sum + val * val, 0));
+//   return dotProduct / (normA * normB);
 // }
 
-// // 2. Chunk PDF text smartly using paragraph or sentence separators
-// function chunkTextSmart(text, size = 800, overlap = 100) {
-//   const chunks = [];
-//   const paragraphs = text.split(/\n\s*\n/); // double newlines = paragraph split
+// async function answerFromPlan(planId, question) {
+//   const t0 = Date.now();
+//   console.log(`\n====================== 🟣 QUERY PLAN REQUEST RECEIVED ======================`);
+//   console.log(`📩 Received question: "${question}" for planId: "${planId}"`);
 
-//   let currentChunk = '';
-//   for (let para of paragraphs) {
-//     if (currentChunk.length + para.length > size) {
-//       chunks.push(currentChunk.trim());
-//       currentChunk = para.slice(-overlap); // overlap from end of previous para
-//     } else {
-//       currentChunk += '\n\n' + para;
-//     }
-//   }
+//   // 🔹 Setup embedding client
+//   const embeddingClient = new OpenAI({
+//     apiKey: process.env.AZURE_OPENAI_KEY,
+//     baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT}`,
+//     defaultQuery: { 'api-version': process.env.AZURE_OPENAI_EMBEDDING_API_VERSION },
+//     defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_KEY }
+//   });
 
-//   if (currentChunk.trim().length > 0) chunks.push(currentChunk.trim());
+//   // 🔹 Run embedding + DB query in parallel
+//   const embedStart = Date.now();
+//   const embeddingPromise = embeddingClient.embeddings.create({ input: question });
+  
+//   const retrievalStart = Date.now();
+//   const db = await getDb();
 
-//   console.log(`📄 Total Smart Chunks: ${chunks.length}`);
-//   return chunks;
-// }
 
-// // 3. Ingest plan into vector DB
-// async function ingestPlanPdf(planId, pdfUrl) {
-//   const { text } = await loadPdfFromUrl(pdfUrl);
-//   const chunks = chunkTextSmart(text);
+//   // const collection = db.collection('embeddings');
+//   // const chunksPromise = collection
+//   //   .find({ planId: planId.trim() }, { projection: { embedding: 1, text: 1 } })
+//   //   .sort({ chunkIndex: 1 })
+//   //   .limit(100)
+//   //   .toArray();
 
-//   for (let i = 0; i < chunks.length; i++) {
-//     const chunk = chunks[i];
-//     const id = crypto.createHash('md5').update(`${planId}_${i}_${chunk}`).digest('hex');
-//     const embedding = await createEmbedding(chunk);
+// const collection = db.collection('plandoc');
+// const chunksPromise = collection
+//   .find({ parent_id: planId.trim() }, { projection: { embedding: 1, chunk: 1, page_number: 1, chunk_position: 1, source_file: 1, chunk_id: 1 } })
+//   .sort({ chunk_position: 1 })  // formerly chunkIndex
+//   .limit(100)
+//   .toArray();
 
-//     await queryEmbeddingStore('insert', {
-//       id,
-//       planId,
-//       embedding,
-//       text: chunk,
-//       metadata: {
-//         planId,
-//         chunkIndex: i
+
+//   const [embeddingResponse, chunks] = await Promise.all([embeddingPromise, chunksPromise]);
+
+//   const embedTime = Date.now() - embedStart;
+//   const retrievalTime = Date.now() - retrievalStart;
+
+//   const questionEmbedding = embeddingResponse.data[0].embedding;
+//   console.log(`🧠 Generated embedding in ${embedTime}ms.`);
+//   console.log(`📦 Retrieved ${chunks.length} chunks in ${retrievalTime}ms from MongoDB for planId: ${planId}`);
+
+//   chunks.slice(0, 3).forEach((chunk, i) => {
+//     console.log(`   🔹 Chunk ${i + 1}: "${chunk.text?.slice(0, 80)}..."`);
+//   });
+
+//   // 🔹 Score chunks
+//   const scoringStart = Date.now();
+//   const scored = chunks.map(chunk => ({
+//     ...chunk,
+//     score: cosineSimilarity(chunk.embedding, questionEmbedding),
+//   }));
+//   const scoringTime = Date.now() - scoringStart;
+//   console.log(`📊 Scored ${chunks.length} chunks in ${scoringTime}ms.`);
+
+//   const topChunks = scored
+//     .sort((a, b) => b.score - a.score)
+//     .slice(0, 3)
+//     // .map(c => c.text)
+//     .map(c => c.chunk)
+
+//     .join("\n---\n");
+
+//   // 🔹 Generate GPT answer
+//   const gptStart = Date.now();
+//   const completion = await openai.chat.completions.create({
+//     messages: [
+//       {
+//         role: "system",
+//         content: "You are a helpful assistant answering questions based on insurance plan documents.",
+//       },
+//       {
+//         role: "user",
+//         content: `Answer this question using the context below.\n\nContext:\n${topChunks}\n\nQuestion: ${question}`
 //       }
-//     });
-//   }
-
-//   console.log(`✅ Ingested ${chunks.length} smart chunks for plan: ${planId}`);
-// }
-
-// // 4. Query vector DB and get answer from OpenAI
-// async function answerFromPlan(planId, question) {
-//   console.log(`📡 [RAG] Received planId: ${planId}`);
-//   console.log(`📡 [RAG] Incoming question: ${question}`);
-
-//   const results = await queryEmbeddingStore('search', {
-//     query: question,
-//     filter: { planId }
+//     ],
+//     temperature: 0.3,
 //   });
+//   const gptTime = Date.now() - gptStart;
+//   const totalTime = Date.now() - t0;
 
-//   if (!results || results.length === 0) {
-//     console.warn("⚠️ [RAG] No vector DB matches found for:", question);
-//     return "I'm sorry, I couldn't find an answer in your plan document.";
-//   }
+//   const finalAnswer = completion.choices[0].message.content;
+//   console.log(`✅ Final Answer:\n${finalAnswer}`);
+//   console.log(`⏱️ Advanced Timing Metrics:
+//    • Embedding generation: ${embedTime}ms
+//    • DB retrieval: ${retrievalTime}ms
+//    • Cosine scoring: ${scoringTime}ms
+//    • GPT completion: ${gptTime}ms
+//    • ⏱️ Total pipeline: ${totalTime}ms`);
 
-//   console.log(`📚 [RAG] Using ${results.length} context chunks...`);
-//   const context = results.map((r, i) => {
-//     console.log(`🧩 [Chunk ${i + 1}] Score: ${r.score?.toFixed(4)} | ${r.text.slice(0, 100)}...`);
-//     return r.text;
-//   }).join('\n\n');
-
-//   const response = await openai.chat.completions.create({
-//     model: 'gpt-4o',
-//     messages: [
-//       { role: 'system', content: 'Answer using only the customer\'s health plan information below.' },
-//       { role: 'user', content: `${context}\n\nQ: ${question}` }
-//     ]
-//   });
-
-//   const finalAnswer = response.choices[0].message.content;
-//   console.log("✅ [RAG] Final answer from OpenAI:\n", finalAnswer);
 //   return finalAnswer;
 // }
 
-// module.exports = { ingestPlanPdf, answerFromPlan };
-
-
-// const axios = require('axios');
-// const pdfParse = require('pdf-parse');
-// const crypto = require('crypto');
-// // const { createEmbedding, queryEmbeddingStore } = require('./vectorStore');
-// const { createEmbedding, queryEmbeddingStore } = require('../utils/embeddingUtils');
-// const { OpenAI } = require('openai');
-
-// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// async function loadPdfFromUrl(url) {
-//   const response = await axios.get(url, { responseType: 'arraybuffer' });
-//   const data = await pdfParse(response.data);
-//   return { text: data.text };
-// }
-
-// function chunkTextSmart(text, size = 800, overlap = 100) {
-//   const paragraphs = text.split(/\n\s*\n/);
-//   const chunks = [];
-//   let current = '';
-
-//   for (let para of paragraphs) {
-//     if ((current + para).length > size) {
-//       chunks.push(current.trim());
-//       current = para.slice(-overlap);
-//     } else {
-//       current += '\n\n' + para;
-//     }
-//   }
-//   if (current.trim()) chunks.push(current.trim());
-
-//   console.log(`📄 Total Smart Chunks: ${chunks.length}`);
-//   return chunks;
-// }
-
-// async function ingestPlanPdf(planId, pdfUrl) {
-//   const { text } = await loadPdfFromUrl(pdfUrl);
-//   const chunks = chunkTextSmart(text);
-
-//   for (let i = 0; i < chunks.length; i++) {
-//     const chunk = chunks[i];
-//     const id = crypto.createHash('md5').update(`${planId}_${i}_${chunk}`).digest('hex');
-//     const embedding = await createEmbedding(chunk);
-
-//     await queryEmbeddingStore('insert', {
-//       id,
-//       planId,
-//       embedding,
-//       text: chunk,
-//       metadata: { planId, chunkIndex: i }
-//     });
-//   }
-
-//   console.log(`✅ Ingested ${chunks.length} smart chunks for plan: ${planId}`);
-// }
-
-// async function isPlanAlreadyIngested(planId) {
-//   const { data, error } = await supabase
-//     .from(TABLE_NAME)
-//     .select('id', { count: 'exact', head: true })
-//     .eq('plan_id', planId);
-
-//   return data?.length > 0;
-// }
-
-
-// async function answerFromPlan(planId, question) {
-//   console.log(`📡 [RAG] Received planId: ${planId}`);
-//   console.log(`📡 [RAG] Incoming question: ${question}`);
-
-//   const results = await queryEmbeddingStore('search', {
-//     query: question,
-//     filter: { planId }
-//   });
-
-//   if (!results || results.length === 0) {
-//     console.warn("⚠️ No matches found for:", question);
-//     return "I'm sorry, I couldn't find an answer in your plan document.";
-//   }
-
-//   const context = results.map((r, i) => {
-//     console.log(`🧩 [Chunk ${i + 1}] Score: ${r.score?.toFixed(4)} | ${r.text.slice(0, 100)}...`);
-//     return r.text;
-//   }).join('\n\n');
-
-//   const response = await openai.chat.completions.create({
-//     model: 'gpt-4o',
-//     messages: [
-//       { role: 'system', content: "You are a helpful assistant answering based only on the provided insurance plan document." },
-//       { role: 'user', content: `${context}\n\nQ: ${question}` }
-//     ]
-//   });
-
-//   const finalAnswer = response.choices[0].message.content;
-//   console.log("✅ Final answer:\n", finalAnswer);
-//   return finalAnswer;
-// }
-
-// module.exports = { ingestPlanPdf, answerFromPlan };
+// module.exports = {
+//   answerFromPlan,
+// };
 
 
 
 
 
-
-
-// const axios = require('axios');
-// const pdfParse = require('pdf-parse');
-// const crypto = require('crypto');
-// const { createEmbedding, queryEmbeddingStore } = require('../utils/embeddingUtils');
-// const { OpenAI } = require('openai');
-
-// const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// async function loadPdfFromUrl(url) {
-//   const response = await axios.get(url, { responseType: 'arraybuffer' });
-//   const data = await pdfParse(response.data);
-//   return { text: data.text };
-// }
-
-// function chunkTextSmart(text, size = 800, overlap = 100) {
-//   const paragraphs = text.split(/\n\s*\n/);
-//   const chunks = [];
-//   let current = '';
-
-//   for (let para of paragraphs) {
-//     if ((current + para).length > size) {
-//       chunks.push(current.trim());
-//       current = para.slice(-overlap);
-//     } else {
-//       current += '\n\n' + para;
-//     }
-//   }
-
-//   if (current.trim()) chunks.push(current.trim());
-
-//   console.log(`📄 Total Smart Chunks: ${chunks.length}`);
-//   return chunks;
-// }
-
-// async function ingestPlanPdf(planId, pdfUrl) {
-//   const { text } = await loadPdfFromUrl(pdfUrl);
-//   const chunks = chunkTextSmart(text);
-
-//   for (let i = 0; i < chunks.length; i++) {
-//     const chunk = chunks[i];
-//     const id = crypto.createHash('md5').update(`${planId}_${i}_${chunk}`).digest('hex');
-//     const embedding = await createEmbedding(chunk);
-
-//     await queryEmbeddingStore('insert', {
-//       id,
-//       planId,
-//       embedding,
-//       text: chunk,
-//       metadata: { planId, chunkIndex: i }
-//     });
-//   }
-
-//   console.log(`✅ Ingested ${chunks.length} smart chunks for plan: ${planId}`);
-// }
-
-// async function answerFromPlan(planId, question) {
-//   console.log(`📡 [RAG] Received planId: ${planId}`);
-//   console.log(`📡 [RAG] Incoming question: ${question}`);
-
-//   const results = await queryEmbeddingStore('search', {
-//     query: question,
-//     filter: { planId }
-//   });
-
-//   if (!results || results.length === 0) {
-//     console.warn("⚠️ No matches found for:", question);
-//     return "I'm sorry, I couldn't find an answer in your plan document.";
-//   }
-
-//   const context = results.map((r, i) => {
-//     console.log(`🧩 [Chunk ${i + 1}] Score: ${r.score?.toFixed(4)} | ${r.text.slice(0, 100)}...`);
-//     return r.text;
-//   }).join('\n\n');
-
-//   const response = await openai.chat.completions.create({
-//     model: 'gpt-4o',
-//     messages: [
-//       { role: 'system', content: "You are a helpful assistant answering based only on the provided insurance plan document." },
-//       { role: 'user', content: `${context}\n\nQ: ${question}` }
-//     ]
-//   });
-
-//   const finalAnswer = response.choices[0].message.content;
-//   console.log("✅ Final answer:\n", finalAnswer);
-//   return finalAnswer;
-// }
-
-// module.exports = { ingestPlanPdf, answerFromPlan };
-
-
-
-
-const axios = require('axios');
-const pdfParse = require('pdf-parse');
-const crypto = require('crypto');
-const { createEmbedding, queryEmbeddingStore } = require('../utils/embeddingUtils');
+require('dotenv').config();
 const { OpenAI } = require('openai');
+const getDb = require('../utils/mongoClient');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey: process.env.AZURE_OPENAI_KEY,
+  baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_CHAT_DEPLOYMENT}`,
+  defaultQuery: { 'api-version': process.env.AZURE_OPENAI_CHAT_API_VERSION },
+  defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_KEY }
+});
 
-// 1. Download and parse PDF text
-async function loadPdfFromUrl(url) {
-  const response = await axios.get(url, { responseType: 'arraybuffer' });
-  const data = await pdfParse(response.data);
-  return { text: data.text };
+function cosineSimilarity(vecA, vecB) {
+  const dotProduct = vecA.reduce((sum, val, i) => sum + val * vecB[i], 0);
+  const normA = Math.sqrt(vecA.reduce((sum, val) => sum + val * val, 0));
+  const normB = Math.sqrt(vecB.reduce((sum, val) => sum + val * val, 0));
+  return dotProduct / (normA * normB);
 }
 
-// 2. Smarter chunking with section header detection
-function chunkTextSmart(text, size = 800, overlap = 100) {
-  const paragraphs = text.split(/\n\s*\n/);
-  const chunks = [];
-  let current = '';
-  let section = '';
+async function answerFromPlan(parentId, question) {
+  const t0 = Date.now();
+  console.log(`\n====================== 🟣 QUERY PLAN REQUEST RECEIVED ======================`);
+  console.log(`📩 Received question: "${question}" for parent_id: "${parentId}"`);
 
-  for (let para of paragraphs) {
-    const isHeader = /^[A-Z\s\d\-\.:]{5,}$/.test(para.trim());
-    if (isHeader) section = para.trim();
-
-    if ((current + para).length > size) {
-      chunks.push({ text: current.trim(), section });
-      current = para.slice(-overlap);
-    } else {
-      current += '\n\n' + para;
-    }
-  }
-  if (current.trim()) chunks.push({ text: current.trim(), section });
-
-  console.log(`📄 Total Smart Chunks: ${chunks.length}`);
-  return chunks;
-}
-
-// 3. Ingest all chunks into vector DB
-async function ingestPlanPdf(planId, pdfUrl) {
-  const { text } = await loadPdfFromUrl(pdfUrl);
-  const chunks = chunkTextSmart(text);
-
-  for (let i = 0; i < chunks.length; i++) {
-    const { text: chunkText, section } = chunks[i];
-    const id = crypto.createHash('md5').update(`${planId}_${i}_${chunkText}`).digest('hex');
-    const embedding = await createEmbedding(chunkText);
-
-    await queryEmbeddingStore('insert', {
-      id,
-      planId,
-      embedding,
-      text: chunkText,
-      metadata: { planId, chunkIndex: i, section: section || 'Unknown' }
-    });
-  }
-
-  console.log(`✅ Ingested ${chunks.length} smart chunks for plan: ${planId}`);
-}
-
-// 4. Answer from plan using vector DB + optional regex fallback
-async function answerFromPlan(planId, question) {
-  console.log(`📡 [RAG] Received planId: ${planId}`);
-  console.log(`📡 [RAG] Incoming question: ${question}`);
-
-  const results = await queryEmbeddingStore('search', {
-    query: question,
-    filter: { planId }
+  const embeddingClient = new OpenAI({
+    apiKey: process.env.AZURE_OPENAI_KEY,
+    baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT}`,
+    defaultQuery: { 'api-version': process.env.AZURE_OPENAI_EMBEDDING_API_VERSION },
+    defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_KEY }
   });
 
-  if (!results || results.length === 0) {
-    console.warn("⚠️ No matches found for:", question);
-    return "I'm sorry, I couldn't find an answer in your plan document.";
+  const embedStart = Date.now();
+  const embeddingPromise = embeddingClient.embeddings.create({ input: question });
+
+  const db = await getDb();
+  const collection = db.collection('plandoc');
+  const retrievalStart = Date.now();
+  const chunksPromise = collection
+    .find(
+      { parent_id: parentId.trim() },
+      { projection: { embedding: 1, chunk: 1, page_number: 1, chunk_position: 1, source_file: 1, chunk_id: 1 } }
+    )
+    .sort({ chunk_position: 1 })
+    .limit(100)
+    .toArray();
+
+  const [embeddingResponse, chunks] = await Promise.all([embeddingPromise, chunksPromise]);
+
+  const embedTime = Date.now() - embedStart;
+  const retrievalTime = Date.now() - retrievalStart;
+
+  console.log(`🧠 Generated embedding in ${embedTime}ms.`);
+  console.log(`📦 Retrieved ${chunks.length} chunks in ${retrievalTime}ms from MongoDB for parent_id: ${parentId}`);
+
+  if (chunks.length === 0) {
+    console.warn(`⚠️ No chunks found for parent_id=${parentId}`);
+    const availableParents = await collection.distinct("parent_id");
+    console.log("📄 Available parent_ids (sample):", availableParents.slice(0, 5));
   }
 
-  const context = results.map((r, i) => {
-    console.log(`🧩 [Chunk ${i + 1}] Score: ${r.score?.toFixed(4)} | ${r.text.slice(0, 100)}...`);
-    return r.text;
-  }).join('\n\n');
+  chunks.slice(0, 3).forEach((chunk, i) => {
+    console.log(
+      `   🔹 Chunk ${i + 1}: (page ${chunk.page_number}, pos ${chunk.chunk_position}) "${chunk.chunk?.slice(0, 80)}..."`
+    );
+  });
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-     temperature: 0.2,
+  const questionEmbedding = embeddingResponse.data[0].embedding;
+  const scoringStart = Date.now();
+  const scored = chunks.map(chunk => ({
+    ...chunk,
+    score: cosineSimilarity(chunk.embedding, questionEmbedding),
+  }));
+  const scoringTime = Date.now() - scoringStart;
+  console.log(`📊 Scored ${chunks.length} chunks in ${scoringTime}ms.`);
+
+  const topChunks = scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map(c => c.chunk)
+    .join("\n---\n");
+
+  const gptStart = Date.now();
+  const completion = await openai.chat.completions.create({
     messages: [
-      { role: 'system', content: "You are a helpful assistant answering based only on the provided insurance plan document. If the answer includes deductibles, copayments, limits, or dates, be specific and precise." },
-      { role: 'user', content: `${context}\n\nQ: ${question}` }
-    ]
+      { role: "system", content: "You are a helpful assistant answering questions based on insurance plan documents." },
+      {
+        role: "user",
+        content: `Answer this question using the context below.\n\nContext:\n${topChunks}\n\nQuestion: ${question}`
+      }
+    ],
+    temperature: 0.3,
   });
 
-  const finalAnswer = response.choices[0].message.content;
-  console.log("✅ Final answer:\n", finalAnswer);
+  const gptTime = Date.now() - gptStart;
+  const totalTime = Date.now() - t0;
+  const finalAnswer = completion.choices[0].message.content;
+
+  console.log(`✅ Final Answer:\n${finalAnswer}`);
+  console.log(`⏱️ Advanced Timing Metrics:
+   • Embedding generation: ${embedTime}ms
+   • DB retrieval: ${retrievalTime}ms
+   • Cosine scoring: ${scoringTime}ms
+   • GPT completion: ${gptTime}ms
+   • ⏱️ Total pipeline: ${totalTime}ms`);
+
   return finalAnswer;
 }
 
-module.exports = { ingestPlanPdf, answerFromPlan };
+module.exports = { answerFromPlan };

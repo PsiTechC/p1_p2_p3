@@ -1,289 +1,104 @@
-// // C:\sanket\BE_PLAN_ID\routes\queryPlan.js
 
-// const express = require('express');
+
+
+// // C:\sanket\RAG_reteival_azure_SQL\routes\queryPlan.js
+
+// const express = require("express");
 // const router = express.Router();
-// const db = require('../utils/mockDb');
+// const { findCustomerByMemberId } = require("../utils/sqlDb");
+// const { answerFromPlan } = require("../services/planRagPipeline");
 
-// router.post('/', async (req, res) => {
-//   const toolCall = req.body?.message?.toolCalls?.[0];
-//   const input = toolCall?.function?.arguments || {};
-//   const plan_id = input.plan_id;
-//   const question = input.question;
-//   const toolCallId = toolCall?.id || 'no-id';
-
-//   console.log('📩 Incoming question:', question);
-
-//   const plan = await db.findPlanById(plan_id);
-
-//   if (!plan) {
-//     console.log('❌ No plan found for:', plan_id);
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
-//       ]
-//     });
-//   }
-
-//   // const match = plan.qa.find(qa =>
-//   //   question.toLowerCase().includes(qa.q.toLowerCase())
-//   // ); 
-//   const match = plan.qa.find(qa =>
-//   question.toLowerCase().includes(qa.q.toLowerCase())
-//     || qa.q.toLowerCase().includes(question.toLowerCase())
-// );
-
-
-//   if (!match) {
-//     console.log('⚠️ No match for question');
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
-//       ]
-//     });
-//   }
-
-//   return res.json({
-//     results: [
-//       {
-//         toolCallId,
-//         result: {
-//           answer: match.a,
-//           requires_human: false
-//         }
-//       }
-//     ]
-//   });
-// });
-
-// module.exports = router;
-
-
-
-// // C:\sanket\BE_PLAN_ID\routes\queryPlan.js
-
-// const express = require('express');
-// const router = express.Router();
-// const { answerFromPlan } = require('../services/planRagPipeline');
-
-// router.post('/', async (req, res) => {
-//   const toolCall = req.body?.message?.toolCalls?.[0];
-//   const input = toolCall?.function?.arguments || {};
-//   const plan_id = input.plan_id;
-//   const question = input.question;
-//   const toolCallId = toolCall?.id || 'no-id';
-
-//   console.log('📩 Incoming question:', question);
+// router.post("/", async (req, res) => {
+//   console.log("\n====================== 🟣 QUERY PLAN REQUEST RECEIVED ======================");
+//   console.log("📝 Raw Request Body:", JSON.stringify(req.body, null, 2));
 
 //   try {
-//     const answer = await answerFromPlan(plan_id, question);
-
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: {
-//             answer,
-//             requires_human: false
-//           }
-//         }
-//       ]
-//     });
-//   } catch (error) {
-//     console.error('❌ Error answering from plan:', error);
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
-//       ]
-//     });
-//   }
-// });
-
-// module.exports = router;
-
-
-
-
-// // File: routes/queryPlan.js
-
-// const express = require('express');
-// const router = express.Router();
-// const db = require('../utils/mockDb');  // ✅ Make sure this can access `findCustomer`
-// const { answerFromPlan } = require('../services/planRagPipeline');
-
-// router.post('/', async (req, res) => {
-//   const toolCall = req.body?.message?.toolCalls?.[0];
-//   const input = toolCall?.function?.arguments || {};
-//   const plan_id = input.plan_id; // This is actually memberId
-//   const question = input.question;
-//   const toolCallId = toolCall?.id || 'no-id';
-
-//   console.log('📩 Incoming question:', question);
-
-//   try {
-//     // ✅ Look up customer by member ID
-//     const customer = await db.findCustomerByMemberId(plan_id);
-//     if (!customer || !customer.planPdfUrl) {
-//       console.warn('⚠️ No plan URL found for memberId:', plan_id);
-//       throw new Error('No plan PDF found');
+//     // ✅ Parse input flexibly
+//     let input = req.body;
+//     if (req.body?.message?.toolCalls?.[0]?.function?.arguments) {
+//       let rawArgs = req.body.message.toolCalls[0].function.arguments;
+//       input = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
 //     }
 
-//     const planUrl = customer.planPdfUrl;
+//     // ✅ Extract values safely
+//     const planIdOrMemberId = input.plan_id || input.planId || input.member_id;
+//     const question = input.question;
+//     const toolCallId = req.body?.message?.toolCalls?.[0]?.id || "no-id";
 
-//     // ✅ Pass plan URL + question to RAG
-//     const answer = await answerFromPlan(planUrl, question);
+//     console.log(`📩 Incoming question: ${question}`);
+//     console.log(`🔑 Received planIdOrMemberId: ${planIdOrMemberId}`);
 
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: {
-//             answer,
-//             requires_human: false
-//           }
-//         }
-//       ]
-//     });
-
-//   } catch (error) {
-//     console.error('❌ Error answering from plan:', error);
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
-//       ]
-//     });
-//   }
-// });
-
-// module.exports = router;
-
-
-
-// // File: routes/queryPlan.js
-
-// const express = require('express');
-// const router = express.Router();
-// const db = require('../utils/mockDb');  // ✅ Access to findCustomerByMemberId
-// const { answerFromPlan } = require('../services/planRagPipeline');
-
-// router.post('/', async (req, res) => {
-//   const toolCall = req.body?.message?.toolCalls?.[0];
-//   const input = toolCall?.function?.arguments || {};
-//   const plan_id = input.plan_id; // This is actually memberId
-//   const question = input.question;
-//   const toolCallId = toolCall?.id || 'no-id';
-// console.log('🧾 Looking up customer by member_id:', input.member_id);
-
-//   console.log('📩 Incoming question:', question);
-
-//   try {
-//     // ✅ Look up customer by member ID
-//     // const customer = await db.findCustomerByMemberId(plan_id);
-//     const customer = await db.findCustomer(questionContext.member_id || plan_id);
-
-//     if (!customer || !customer.planPdfUrl) {
-//       console.warn('⚠️ No plan URL found for memberId:', plan_id);
-//       throw new Error('No plan PDF found');
+//     // 🚧 Validate input early
+//     if (!planIdOrMemberId || !question) {
+//       console.error("❌ Missing required plan_id or question — cannot proceed.");
+//       return res.status(200).json({
+//         results: [
+//           { toolCallId, result: { requires_human: true, reason: "Missing plan_id or question" } }
+//         ]
+//       });
 //     }
 
-//     const planUrl = customer.planPdfUrl;
-//     console.log(`🔗 Using Plan PDF URL: ${planUrl}`);
+//     // ✅ Resolve planId (lookup if given memberID)
+//     // let planId = planIdOrMemberId;
+//     // if (!planIdOrMemberId.startsWith("AC-")) {
+//     //   console.log("🔎 Treating as memberID — looking up in SQL...");
+//     //   const customer = await findCustomerByMemberId(planIdOrMemberId);
+//     //   if (customer) {
+//     //     planId = customer.planId;
+//     //     console.log(`👤 Found customer: ${customer.name}, resolved planId=${planId}`);
+//     //   } else {
+//     //     console.warn(`⚠️ No customer found for memberID=${planIdOrMemberId}`);
+//     //   }
+//     // }
 
-//     // ✅ Pass plan URL + question to RAG
-//     const answer = await answerFromPlan(planUrl, question);
-//     console.log(`🧠 Answer generated: ${answer}`);
+// function normalizePlanId(planId) {
+//   // Example logic, change as per your naming convention
+//   return planId.replace("AC-", "PSM_").replace(/-/g, "_");
+// }
 
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: {
-//             answer,
-//             requires_human: false
-//           }
-//         }
-//       ]
-//     });
 
-//   } catch (error) {
-//     console.error('❌ Error answering from plan:', error);
-//     return res.json({
-//       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
-//       ]
-//     });
+
+// let parentId = planIdOrMemberId;
+// if (!planIdOrMemberId.startsWith("PSM_")) {
+//   console.log("🔎 Treating as memberID — looking up in SQL...");
+//   const customer = await findCustomerByMemberId(planIdOrMemberId);
+//   if (customer) {
+//     parentId = normalizePlanId(customer.planId); // new helper
+//     console.log(`👤 Found customer: ${customer.name}, resolved parentId=${parentId}`);
+//   } else {
+//     console.warn(`⚠️ No customer found for memberID=${planIdOrMemberId}`);
 //   }
-// });
-
-// module.exports = router;
+// }
 
 
-
-// // File: routes/queryPlan.js
-
-// const express = require('express');
-// const router = express.Router();
-// const db = require('../utils/mockDb');  // ✅ Access to findCustomerByMemberId
-// const { answerFromPlan } = require('../services/planRagPipeline');
-
-// router.post('/', async (req, res) => {
-//   const toolCall = req.body?.message?.toolCalls?.[0];
-//   const input = toolCall?.function?.arguments || {};
-//   // const plan_id = input.plan_id; // This is actually memberId
-//   const question = input.question;
-//   const toolCallId = toolCall?.id || 'no-id';
-
-//   console.log('📩 Incoming question:', question);
-
-//   try {
-//     // ✅ Look up customer by member ID
-//     const customer = await db.findCustomerByMemberId(plan_id);
-//     if (!customer || !customer.planPdfUrl) {
-//       console.warn('⚠️ No plan URL found for memberId:', plan_id);
-//       throw new Error('No plan PDF found');
+//     if (!planId) {
+//       console.error("❌ Could not resolve a valid planId");
+//       return res.status(200).json({
+//         results: [
+//           { toolCallId, result: { requires_human: true, reason: "Could not resolve planId" } }
+//         ]
+//       });
 //     }
 
-//     const planUrl = customer.planPdfUrl;
-//     console.log(`🔗 Using Plan PDF URL: ${planUrl}`);
+//     console.log(`🔑 Final planId for embeddings lookup: ${planId}`);
 
-//     // ✅ Pass plan URL + question to RAG
-//     const answer = await answerFromPlan(planUrl, question);
-//     console.log(`🧠 Answer generated: ${answer}`);
+//     // ✅ Fetch answer from embeddings
+//     // const answer = await answerFromPlan(planId, question);
+//     const answer = await answerFromPlan(parentId, question);
 
-//     return res.json({
+//     console.log(`🧠 Final Answer: ${answer}`);
+
+//     return res.status(200).json({
 //       results: [
-//         {
-//           toolCallId,
-//           result: {
-//             answer,
-//             requires_human: false
-//           }
-//         }
+//         { toolCallId, result: { answer, requires_human: false } }
 //       ]
 //     });
 
 //   } catch (error) {
-//     console.error('❌ Error answering from plan:', error);
-//     return res.json({
+//     console.error("❌ Error in query-plan:", error);
+//     return res.status(500).json({
 //       results: [
-//         {
-//           toolCallId,
-//           result: { requires_human: true }
-//         }
+//         { result: { requires_human: true, error: error.message } }
 //       ]
 //     });
 //   }
@@ -293,56 +108,87 @@
 
 
 
-const express = require('express');
+
+// C:\sanket\New_Schema_RAG_reteival_azure_SQL\routes\queryPlan.js
+const express = require("express");
 const router = express.Router();
-const db = require('../utils/mockDb');
-const { answerFromPlan } = require('../services/planRagPipeline');
+const { findCustomerByMemberId } = require("../utils/sqlDb");
+const { answerFromPlan } = require("../services/planRagPipeline");
 
-router.post('/', async (req, res) => {
-  const toolCall = req.body?.message?.toolCalls?.[0];
-  const input = toolCall?.function?.arguments || {};
-  const plan_id = input.plan_id;
-  const question = input.question;
-  const toolCallId = toolCall?.id || 'no-id';
-
-  console.log('📩 Incoming question:', question);
+router.post("/", async (req, res) => {
+  console.log("\n====================== 🟣 QUERY PLAN REQUEST RECEIVED ======================");
+  console.log("📝 Raw Request Body:", JSON.stringify(req.body, null, 2));
 
   try {
-    // ✅ Fetch customer first
-    const customer = await db.findCustomerByMemberId(plan_id);
-
-    if (!customer || !customer.planPdfUrl || !customer.planId) {
-      console.warn('⚠️ No plan info found for memberId:', plan_id);
-      throw new Error('No plan info available');
+    // ✅ Parse input flexibly
+    let input = req.body;
+    if (req.body?.message?.toolCalls?.[0]?.function?.arguments) {
+      let rawArgs = req.body.message.toolCalls[0].function.arguments;
+      input = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
     }
 
-    // ✅ Now safely access customer
-    const planId = customer.planId;
-    console.log(`👤 Verified: ${customer.name} | Plan ID: ${planId}`);
+    // ✅ Extract values safely
+    const planIdOrMemberId = input.plan_id || input.planId || input.member_id;
+    const question = input.question;
+    const toolCallId = req.body?.message?.toolCalls?.[0]?.id || "no-id";
 
-    const answer = await answerFromPlan(planId, question);
+    console.log(`📩 Incoming question: ${question}`);
+    console.log(`🔑 Received planIdOrMemberId: ${planIdOrMemberId}`);
+
+    // 🚧 Validate input early
+    if (!planIdOrMemberId || !question) {
+      console.error("❌ Missing required plan_id or question — cannot proceed.");
+      return res.status(200).json({
+        results: [
+          { toolCallId, result: { requires_human: true, reason: "Missing plan_id or question" } }
+        ]
+      });
+    }
+
+    // ✅ Helper to normalize old planIds to parentId format
+    function normalizePlanId(planId) {
+      return planId.replace("AC-", "PSM_").replace(/-/g, "_");
+    }
+
+    // ✅ Resolve parentId (lookup if given memberID)
+    let parentId = planIdOrMemberId;
+    if (!planIdOrMemberId.startsWith("PSM_")) {
+      console.log("🔎 Treating as memberID — looking up in SQL...");
+      const customer = await findCustomerByMemberId(planIdOrMemberId);
+      if (customer) {
+        parentId = normalizePlanId(customer.planId);
+        console.log(`👤 Found customer: ${customer.name}, resolved parentId=${parentId}`);
+      } else {
+        console.warn(`⚠️ No customer found for memberID=${planIdOrMemberId}`);
+      }
+    }
+
+    if (!parentId) {
+      console.error("❌ Could not resolve a valid parentId");
+      return res.status(200).json({
+        results: [
+          { toolCallId, result: { requires_human: true, reason: "Could not resolve parentId" } }
+        ]
+      });
+    }
+
+    console.log(`🔑 Final parentId for embeddings lookup: ${parentId}`);
+
+    // ✅ Fetch answer from embeddings
+    const answer = await answerFromPlan(parentId, question);
     console.log(`🧠 Final Answer: ${answer}`);
 
-    return res.json({
+    return res.status(200).json({
       results: [
-        {
-          toolCallId,
-          result: {
-            answer,
-            requires_human: false
-          }
-        }
+        { toolCallId, result: { answer, requires_human: false } }
       ]
     });
 
   } catch (error) {
-    console.error('❌ Error in query-plan:', error.message);
-    return res.json({
+    console.error("❌ Error in query-plan:", error);
+    return res.status(500).json({
       results: [
-        {
-          toolCallId,
-          result: { requires_human: true }
-        }
+        { result: { requires_human: true, error: error.message } }
       ]
     });
   }

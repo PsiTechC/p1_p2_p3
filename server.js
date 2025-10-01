@@ -1,56 +1,46 @@
-// require('dotenv').config();
-// const express = require('express');
-// const cors = require('cors');
+//C:\sanket\New_Schema_RAG_reteival_azure_SQL\server.js
 
-// const validateCustomer = require('./routes/validateCustomer');
-// const queryPlan = require('./routes/queryPlan');
+require('dotenv').config(); // Load .env FIRST
 
-// const app = express();
-// const PORT = process.env.PORT || 3000;
-
-// app.use(cors());
-// app.use(express.json());
-
-// app.use('/validate-customer', validateCustomer);
-// app.use((req, res, next) => {
-//   console.log(`🔁 Incoming request: ${req.method} ${req.url}`);
-//   next();
-// });
-
-
-// app.get('/', (req, res) => {
-//   res.send('✅ VAPI backend is live!');
-// });
-
-// app.listen(PORT, () => {
-//   console.log(`Server running on http://localhost:${PORT}`);
-// });
-
-
-
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const validateCustomer = require('./routes/validateCustomer');
 const queryPlan = require('./routes/queryPlan');
 
+// ✅ Make sure these match your actual file names exactly:
+const providerEligibility = require("./routes/provider_Eligibility");
+const providerClaimStatus = require("./routes/provider_ClaimStatus");
+
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(express.json());
-app.use('/validate-customer', validateCustomer);
-app.use('/query-plan', queryPlan);
-
+const PORT = process.env.PORT || 9000;
 const MONGO_URI = process.env.MONGODB_URI;
 
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
+console.log('📦 MONGODB_URI =', MONGO_URI);
+console.log('🚪 PORT =', PORT);
+
+// ✅ Middleware
+app.use(express.json());
+
+// ✅ Mount routes
+app.use('/validate-customer', validateCustomer);
+app.use('/query-plan', queryPlan);
+app.use('/provider-eligibility', providerEligibility);
+app.use('/provider-claim-status', providerClaimStatus);
+
+// ✅ Root health check
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "✅ API server is running" });
+});
+
+// ✅ Add console logs for debugging
+console.log("📡 provider-eligibility route mounted at /provider-eligibility");
+console.log("📡 provider-claim-status route mounted at /provider-claim-status");
+
+mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('✅ MongoDB Connected');
     app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
+      console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
     });
   })
   .catch((err) => {

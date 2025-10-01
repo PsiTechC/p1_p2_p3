@@ -3,22 +3,36 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "description": "",
+  "description": "��#\u0000 \u0000R\u0000A\u0000G\u0000_\u0000r\u0000e\u0000t\u0000r\u0000i\u0000v\u0000a\u0000l\u0000\r\u0000 \u0000",
   "dependencies": {
+    "@azure/search-documents": "^12.1.0-beta.2",
     "@supabase/supabase-js": "^2.53.0",
     "axios": "^1.11.0",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
-    "dotenv": "^17.2.1",
+    "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "mongodb": "^6.20.0",
     "mongoose": "^8.17.0",
-    "openai": "^5.11.0",
-    "pdf-parse": "^1.1.1"
-  }
+    "mssql": "^11.0.1",
+    "openai": "^5.20.1",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^3.11.174",
+    "string-similarity": "^4.0.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PsiTechC/RAG_retrival.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PsiTechC/RAG_retrival/issues"
+  },
+  "homepage": "https://github.com/PsiTechC/RAG_retrival#readme"
 }
